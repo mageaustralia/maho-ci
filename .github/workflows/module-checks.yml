@@ -68,21 +68,21 @@ jobs:
           fi
 
           # PHP: getUserParam() (use getParam())
-          if grep -rnE '\->getUserParam\(' app --include='*.php' 2>/dev/null | grep -q .; then
-            grep -rnE '\->getUserParam\(' app --include='*.php' 2>/dev/null
+          if grep -rnE '\->getUserParam\(' app --include='*.php' 2>/dev/null | nc | grep -q .; then
+            grep -rnE '\->getUserParam\(' app --include='*.php' 2>/dev/null | nc
             note "getUserParam() used (use getParam())"
           fi
 
           # PHP/phtml: escapeHtmlAttr() does not exist in Maho
-          if grep -rnE 'escapeHtmlAttr\(' app --include='*.php' --include='*.phtml' 2>/dev/null | grep -q .; then
-            grep -rnE 'escapeHtmlAttr\(' app --include='*.php' --include='*.phtml' 2>/dev/null
+          if grep -rnE 'escapeHtmlAttr\(' app --include='*.php' --include='*.phtml' 2>/dev/null | nc | grep -q .; then
+            grep -rnE 'escapeHtmlAttr\(' app --include='*.php' --include='*.phtml' 2>/dev/null | nc
             note "escapeHtmlAttr() does not exist in Maho (use escapeHtml())"
           fi
 
           # JS: Prototype.js patterns
           PROTO='\$\$\(|Event\.observe\(|Ajax\.(Request|Updater)\(|Element\.update\('
-          if grep -rnE "$PROTO" app public --include='*.js' 2>/dev/null | grep -vE '\.min\.js:' | grep -q .; then
-            grep -rnE "$PROTO" app public --include='*.js' 2>/dev/null | grep -vE '\.min\.js:'
+          if grep -rnE "$PROTO" app public --include='*.js' 2>/dev/null | grep -vE '\.min\.js:' | nc | grep -q .; then
+            grep -rnE "$PROTO" app public --include='*.js' 2>/dev/null | grep -vE '\.min\.js:' | nc
             note "Prototype.js patterns (removed from Maho — use vanilla JS)"
           fi
 
