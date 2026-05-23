@@ -1,0 +1,100 @@
+name: Maho module checks
+
+# Reusable workflow shared by all maho-module-* repos. Call it from a module's
+# .github/workflows/ci.yml:
+#
+#   jobs:
+#     checks:
+#       uses: mageaustralia/maho-ci/.github/workflows/module-checks.yml@main
+#
+# Runs: composer validate, php -l, and Maho coding-standards checks (flags
+# classes/APIs Maho removed — Zend_*, Varien_Date, escapeHtmlAttr, getUserParam,
+# Prototype.js patterns). Pure grep + php -l, no Maho install needed.
+
+on:
+  workflow_call:
+    inputs:
+      php-version:
+        description: PHP version to lint against
+        type: string
+        default: '8.3'
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          coverage: none
+
+      - name: Validate composer.json
+        run: |
+          if [ -f composer.json ]; then
+            composer validate --strict --no-check-publish
+          else
+            echo "no composer.json — skipping"
+          fi
+
+      - name: PHP syntax lint
+        run: |
+          set -e
+          if [ -d app ]; then
+            find app -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
+          else
+            echo "no app/ dir — skipping"
+          fi
+
+      - name: Maho standards (removed Zend/Varien classes & Prototype patterns)
+        run: |
+          fail=0
+          note() { echo "::error::$1"; fail=1; }
+          # Drop comment-only matches (content after path:line: starts with // or *)
+          nc() { grep -vE ':[0-9]+:[[:space:]]*(//|\*)'; }
+
+          # PHP: removed Zend_ classes
+          ZEND='\bZend_(Log|Json|Date|Validate|Filter|Http|Mail|Pdf|Cache|Exception|Db)\b'
+          if grep -rnE "$ZEND" app --include='*.php' 2>/dev/null | nc | grep -q .; then
+            grep -rnE "$ZEND" app --include='*.php' 2>/dev/null | nc
+            note "Zend_ class usage (removed from Maho — use native/Symfony/Mage equivalents)"
+          fi
+
+          # PHP: Varien_Date (removed, no back-compat alias)
+          if grep -rnE '\bVarien_Date::' app --include='*.php' 2>/dev/null | nc | grep -q .; then
+            grep -rnE '\bVarien_Date::' app --include='*.php' 2>/dev/null | nc
+            note "Varien_Date usage (removed — use Mage_Core_Model_Locale::nowUtc())"
+          fi
+
+          # PHP: getUserParam() (use getParam())
+          if grep -rnE '\->getUserParam\(' app --include='*.php' 2>/dev/null | grep -q .; then
+            grep -rnE '\->getUserParam\(' app --include='*.php' 2>/dev/null
+            note "getUserParam() used (use getParam())"
+          fi
+
+          # PHP/phtml: escapeHtmlAttr() does not exist in Maho
+          if grep -rnE 'escapeHtmlAttr\(' app --include='*.php' --include='*.phtml' 2>/dev/null | grep -q .; then
+            grep -rnE 'escapeHtmlAttr\(' app --include='*.php' --include='*.phtml' 2>/dev/null
+            note "escapeHtmlAttr() does not exist in Maho (use escapeHtml())"
+          fi
+
+          # JS: Prototype.js patterns
+          PROTO='\$\$\(|Event\.observe\(|Ajax\.(Request|Updater)\(|Element\.update\('
+          if grep -rnE "$PROTO" app public --include='*.js' 2>/dev/null | grep -vE '\.min\.js:' | grep -q .; then
+            grep -rnE "$PROTO" app public --include='*.js' 2>/dev/null | grep -vE '\.min\.js:'
+            note "Prototype.js patterns (removed from Maho — use vanilla JS)"
+          fi
+
+          # JS: $('id') Prototype selector
+          SEL="\\\$\(['\"][a-zA-Z_-]+['\"]\)"
+          if grep -rnE "$SEL" app public --include='*.js' 2>/dev/null | grep -vE '\.min\.js:' | grep -vE ":[0-9]+:[[:space:]]*//" | grep -q .; then
+            grep -rnE "$SEL" app public --include='*.js' 2>/dev/null | grep -vE '\.min\.js:'
+            note "\$('id') Prototype selector (use document.getElementById())"
+          fi
+
+          if [ "$fail" -ne 0 ]; then
+            echo ""
+            echo "Maho standards check FAILED — see the ::error annotations above."
+            exit 1
+          fi
+          echo "Maho standards: OK"
