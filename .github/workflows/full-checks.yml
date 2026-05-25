@@ -4,8 +4,9 @@ name: Maho full install checks
 # adds the calling module via a Composer path repo (so maho-composer-plugin
 # deploys it), then runs `./maho install` across MySQL / PostgreSQL / SQLite.
 # This verifies the module installs cleanly and that its install/upgrade SQL is
-# DB-portable (the MySQL+Postgres+SQLite guarantee). If the module ships a
-# tests/ dir, its Pest suite is run too.
+# DB-portable (the MySQL+Postgres+SQLite guarantee) and that the storefront
+# boots. Module unit tests stay in the module's own CI (where they have the
+# right bootstrap), not re-run here against the host install.
 #
 # Call from a module's .github/workflows/ci.yml (alongside module-checks.yml):
 #
@@ -127,16 +128,6 @@ jobs:
           done
           echo "::error::web server did not start"; cat /tmp/php-server.log; exit 1
 
-      - name: Run module Pest tests (if any)
-        working-directory: maho-app
-        run: |
-          if [ -d ../module/tests ]; then
-            echo "Running module Pest tests"
-            ./vendor/bin/pest ../module/tests --display-errors --display-warnings
-          else
-            echo "No tests/ in module — skipping Pest"
-          fi
-
   install-sqlite:
     name: Install (sqlite)
     runs-on: ubuntu-latest
@@ -193,13 +184,3 @@ jobs:
             sleep 1
           done
           echo "::error::web server did not start"; cat /tmp/php-server.log; exit 1
-
-      - name: Run module Pest tests (if any)
-        working-directory: maho-app
-        run: |
-          if [ -d ../module/tests ]; then
-            echo "Running module Pest tests"
-            ./vendor/bin/pest ../module/tests --display-errors --display-warnings
-          else
-            echo "No tests/ in module — skipping Pest"
-          fi
