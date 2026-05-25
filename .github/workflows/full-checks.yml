@@ -91,6 +91,12 @@ jobs:
         run: |
           PKG=$(php -r 'echo json_decode(file_get_contents("../module/composer.json"), true)["name"];')
           echo "Module package: $PKG"
+          # The module declares a require on mahocommerce/maho (the root package);
+          # tell Composer the root's real version so the constraint resolves
+          # (otherwise it defaults to 1.0.0 — the dep-on-root problem).
+          COMPOSER_ROOT_VERSION=$(php -r 'require "vendor/autoload.php"; echo Mage::getVersion();' 2>/dev/null)
+          echo "Maho root version: $COMPOSER_ROOT_VERSION"
+          export COMPOSER_ROOT_VERSION
           composer config repositories.module path ../module
           composer require "$PKG:@dev" --no-progress --no-interaction -W --ignore-platform-req=ext-*
 
@@ -162,6 +168,12 @@ jobs:
         run: |
           PKG=$(php -r 'echo json_decode(file_get_contents("../module/composer.json"), true)["name"];')
           echo "Module package: $PKG"
+          # The module declares a require on mahocommerce/maho (the root package);
+          # tell Composer the root's real version so the constraint resolves
+          # (otherwise it defaults to 1.0.0 — the dep-on-root problem).
+          COMPOSER_ROOT_VERSION=$(php -r 'require "vendor/autoload.php"; echo Mage::getVersion();' 2>/dev/null)
+          echo "Maho root version: $COMPOSER_ROOT_VERSION"
+          export COMPOSER_ROOT_VERSION
           composer config repositories.module path ../module
           composer require "$PKG:@dev" --no-progress --no-interaction -W --ignore-platform-req=ext-*
 
