@@ -1,0 +1,201 @@
+name: Maho full install checks
+
+# Reusable workflow shared by maho-module-* repos. It installs a REAL Maho,
+# adds the calling module via a Composer path repo (so maho-composer-plugin
+# deploys it), then runs `./maho install` across MySQL / PostgreSQL / SQLite.
+# This verifies the module installs cleanly and that its install/upgrade SQL is
+# DB-portable (the MySQL+Postgres+SQLite guarantee). If the module ships a
+# tests/ dir, its Pest suite is run too.
+#
+# Call from a module's .github/workflows/ci.yml (alongside module-checks.yml):
+#
+#   jobs:
+#     full:
+#       uses: mageaustralia/maho-ci/.github/workflows/full-checks.yml@main
+#
+# Static analysis (PHPStan) is intentionally NOT here — Maho's own CI doesn't
+# run it either, and the plugin's mock makes per-file PHPStan inaccurate; that's
+# handled separately by the dev pre-commit hook / a plugin-mock fix.
+
+on:
+  workflow_call:
+    inputs:
+      php-version:
+        description: PHP version
+        type: string
+        default: '8.3'
+      sample-data:
+        description: Install Maho sample data (0/1)
+        type: string
+        default: '0'
+
+jobs:
+  install-db:
+    name: Install (${{ matrix.name }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: mysql-8.4
+            db_engine: mysql
+            db_image: mysql:8.4
+            db_user: root
+            db_pass: root
+            db_port: '3306:3306'
+            php_db_ext: ''
+            health_cmd: mysqladmin ping
+          - name: pgsql-16
+            db_engine: pgsql
+            db_image: postgres:16
+            db_user: postgres
+            db_pass: postgres
+            db_port: '5432:5432'
+            php_db_ext: pdo_pgsql
+            health_cmd: pg_isready
+
+    services:
+      db:
+        image: ${{ matrix.db_image }}
+        env:
+          MYSQL_ROOT_PASSWORD: root
+          MYSQL_DATABASE: maho
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: maho
+        ports:
+          - ${{ matrix.db_port }}
+        options: >-
+          --health-cmd="${{ matrix.health_cmd }}"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v4
+        with:
+          path: module
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          extensions: ${{ matrix.php_db_ext }}
+          coverage: none
+
+      - name: Create Maho project
+        run: composer create-project mahocommerce/maho maho-app --no-progress --no-interaction --ignore-platform-req=ext-*
+
+      - name: Add module via Composer path repo
+        working-directory: maho-app
+        run: |
+          PKG=$(php -r 'echo json_decode(file_get_contents("../module/composer.json"), true)["name"];')
+          echo "Module package: $PKG"
+          composer config repositories.module path ../module
+          composer require "$PKG:@dev" --no-progress --no-interaction -W --ignore-platform-req=ext-*
+
+      - name: Verify module deployed
+        working-directory: maho-app
+        run: |
+          DIR=$(php -r 'echo json_decode(file_get_contents("../module/composer.json"), true)["extra"]["maho-module-dir"] ?? "";')
+          if [ -z "$DIR" ]; then echo "no extra.maho-module-dir — skipping deploy check"; exit 0; fi
+          echo "Expecting deployed at: $DIR"
+          test -d "$DIR" && echo "OK: $DIR exists" || { echo "::error::module not deployed to $DIR"; ls -la app/code/community 2>/dev/null || true; exit 1; }
+
+      - name: Install Maho (${{ matrix.db_engine }})
+        working-directory: maho-app
+        run: |
+          ./maho install \
+            --license_agreement_accepted yes \
+            --locale en_US --timezone Europe/London --default_currency USD \
+            --db_host 127.0.0.1 --db_name maho \
+            --db_user ${{ matrix.db_user }} --db_pass ${{ matrix.db_pass }} \
+            --db_engine ${{ matrix.db_engine }} \
+            --url http://maho.test/ --secure_base_url http://maho.test/ \
+            --use_secure 0 --use_secure_admin 0 \
+            --admin_lastname admin --admin_firstname admin --admin_email admin@admin.com \
+            --admin_username admin --admin_password asdasdasd123123123 \
+            --sample_data ${{ inputs.sample-data }}
+          ./maho index:reindex:all
+          ./maho cache:flush
+
+      - name: Smoke test (boot + homepage)
+        working-directory: maho-app
+        run: |
+          php -S 127.0.0.1:8080 -t public > /tmp/php-server.log 2>&1 < /dev/null &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/ -o /dev/null 2>&1; then echo "Web server is up"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::web server did not start"; cat /tmp/php-server.log; exit 1
+
+      - name: Run module Pest tests (if any)
+        working-directory: maho-app
+        run: |
+          if [ -d ../module/tests ]; then
+            echo "Running module Pest tests"
+            ./vendor/bin/pest ../module/tests --display-errors --display-warnings
+          else
+            echo "No tests/ in module — skipping Pest"
+          fi
+
+  install-sqlite:
+    name: Install (sqlite)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout module
+        uses: actions/checkout@v4
+        with:
+          path: module
+
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: ${{ inputs.php-version }}
+          extensions: pdo_sqlite
+          coverage: none
+
+      - name: Create Maho project
+        run: composer create-project mahocommerce/maho maho-app --no-progress --no-interaction --ignore-platform-req=ext-*
+
+      - name: Add module via Composer path repo
+        working-directory: maho-app
+        run: |
+          PKG=$(php -r 'echo json_decode(file_get_contents("../module/composer.json"), true)["name"];')
+          echo "Module package: $PKG"
+          composer config repositories.module path ../module
+          composer require "$PKG:@dev" --no-progress --no-interaction -W --ignore-platform-req=ext-*
+
+      - name: Install Maho (sqlite)
+        working-directory: maho-app
+        run: |
+          ./maho install \
+            --license_agreement_accepted yes \
+            --locale en_US --timezone Europe/London --default_currency USD \
+            --db_name maho.sqlite --db_engine sqlite \
+            --url http://maho.test/ --secure_base_url http://maho.test/ \
+            --use_secure 0 --use_secure_admin 0 \
+            --admin_lastname admin --admin_firstname admin --admin_email admin@admin.com \
+            --admin_username admin --admin_password asdasdasd123123123 \
+            --sample_data ${{ inputs.sample-data }}
+          ./maho index:reindex:all
+          ./maho cache:flush
+
+      - name: Smoke test (boot + homepage)
+        working-directory: maho-app
+        run: |
+          php -S 127.0.0.1:8080 -t public > /tmp/php-server.log 2>&1 < /dev/null &
+          for i in $(seq 1 20); do
+            if curl -fsS http://127.0.0.1:8080/ -o /dev/null 2>&1; then echo "Web server is up"; exit 0; fi
+            sleep 1
+          done
+          echo "::error::web server did not start"; cat /tmp/php-server.log; exit 1
+
+      - name: Run module Pest tests (if any)
+        working-directory: maho-app
+        run: |
+          if [ -d ../module/tests ]; then
+            echo "Running module Pest tests"
+            ./vendor/bin/pest ../module/tests --display-errors --display-warnings
+          else
+            echo "No tests/ in module — skipping Pest"
+          fi
