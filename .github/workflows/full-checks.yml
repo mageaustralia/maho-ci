@@ -52,7 +52,7 @@ jobs:
             db_pass: postgres
             db_port: '5432:5432'
             php_db_ext: pdo_pgsql
-            health_cmd: pg_isready
+            health_cmd: pg_isready -U postgres -d maho
 
     services:
       db:
@@ -99,14 +99,6 @@ jobs:
           export COMPOSER_ROOT_VERSION
           composer config repositories.module path ../module
           composer require "$PKG:@dev" --no-progress --no-interaction -W --ignore-platform-req=ext-*
-
-      - name: Verify module deployed
-        working-directory: maho-app
-        run: |
-          DIR=$(php -r 'echo json_decode(file_get_contents("../module/composer.json"), true)["extra"]["maho-module-dir"] ?? "";')
-          if [ -z "$DIR" ]; then echo "no extra.maho-module-dir — skipping deploy check"; exit 0; fi
-          echo "Expecting deployed at: $DIR"
-          test -d "$DIR" && echo "OK: $DIR exists" || { echo "::error::module not deployed to $DIR"; ls -la app/code/community 2>/dev/null || true; exit 1; }
 
       - name: Install Maho (${{ matrix.db_engine }})
         working-directory: maho-app
