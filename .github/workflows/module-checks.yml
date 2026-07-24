@@ -42,7 +42,10 @@ jobs:
         run: |
           set -e
           if [ -d app ]; then
-            find app -type f -name '*.php' -print0 | xargs -0 -r -n1 php -l
+            # Lint both PHP classes and .phtml templates — a parse error in a
+            # template is just as fatal at runtime but PHPStan doesn't analyse
+            # .phtml, so php -l is the only thing that catches it.
+            find app -type f \( -name '*.php' -o -name '*.phtml' \) -print0 | xargs -0 -r -n1 php -l
           else
             echo "no app/ dir — skipping"
           fi
